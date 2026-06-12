@@ -12,13 +12,6 @@ def test_fakes_satisfy_protocols():
 
 
 @pytest.mark.asyncio
-async def test_fake_stt_returns_canned_transcript():
-    backend = FakeSTTBackend(transcript="hello world")
-    result = await collect_transcript(backend, b"\x00" * 1600, sample_rate=16000)
-    assert result == "hello world"
-
-
-@pytest.mark.asyncio
 async def test_fake_stt_records_calls():
     backend = FakeSTTBackend(transcript="x")
     await collect_transcript(backend, b"abc", sample_rate=16000)

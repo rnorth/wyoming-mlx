@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
+
+log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -50,7 +53,10 @@ async def collect_transcript(backend: STTBackend, audio: bytes, sample_rate: int
                 final = update.final
         return final
     finally:
-        await session.close()
+        try:
+            await session.close()
+        except Exception:
+            log.warning("session.close() failed; suppressing to preserve primary error")
 
 
 @runtime_checkable
