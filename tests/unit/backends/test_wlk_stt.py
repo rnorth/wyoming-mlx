@@ -5,12 +5,14 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import numpy as np
+import pytest
 
 from wyoming_mlx.backends.wlk_stt import (
     WHISPER_SAMPLE_RATE,
     _delta,
     _joined_text,
     _resample_to_16k,
+    _WLKSession,
     resample_pcm16,
 )
 
@@ -72,3 +74,58 @@ def test_delta_empty_when_not_a_prefix():
 
 def test_delta_from_empty_emits_everything():
     assert _delta("", "hello") == "hello"
+
+
+def _session_with_results(fronts: list[SimpleNamespace]) -> _WLKSession:
+    """Build a _WLKSession without an AudioProcessor, injecting fabricated results."""
+    session = object.__new__(_WLKSession)
+    session._emitted = ""
+
+    async def results():
+        for front in fronts:
+            yield front
+
+    session._results = results()
+    return session
+
+
+def _front(texts: list[str | None], buffer: str = "", status: str = "active_transcription"):
+    return SimpleNamespace(
+        status=status,
+        error="",
+        lines=[SimpleNamespace(text=t) for t in texts],
+        buffer_transcription=buffer,
+    )
+
+
+async def test_updates_emits_deltas_then_final_with_buffer_tail():
+    session = _session_with_results(
+        [
+            _front(["hello"]),
+            _front(["hello", "world"], buffer="tail "),
+        ]
+    )
+
+    updates = [u async for u in session.updates()]
+
+    assert [u.text for u in updates[:-1]] == ["hello", " world"]
+    assert updates[-1].final == "hello world tail"
+
+
+async def test_updates_yields_only_final_when_nothing_confirmed():
+    session = _session_with_results([_front([], status="no_audio_detected")])
+
+    updates = [u async for u in session.updates()]
+
+    assert len(updates) == 1
+    assert updates[0].final == ""
+
+
+async def test_updates_raises_on_error_status():
+    session = _session_with_results(
+        [SimpleNamespace(status="error", error="boom", lines=[], buffer_transcription="")]
+    )
+
+    with pytest.raises(RuntimeError, match="boom"):
+        async for _ in session.updates():
+            pass

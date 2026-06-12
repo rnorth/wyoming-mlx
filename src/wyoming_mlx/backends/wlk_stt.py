@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from collections.abc import AsyncGenerator, AsyncIterator
 from math import gcd
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 from scipy.signal import resample_poly
@@ -80,9 +80,10 @@ class _WLKSession:
         self._results: AsyncIterator[Any] | None = None
         self._emitted = ""
 
-    async def _ensure_started(self) -> None:
+    async def _ensure_started(self) -> AsyncIterator[Any]:
         if self._results is None:
-            self._results = await self._processor.create_tasks()
+            self._results = cast(AsyncIterator[Any], await self._processor.create_tasks())
+        return self._results
 
     async def feed(self, audio: bytes, sample_rate: int) -> None:
         await self._ensure_started()
@@ -98,11 +99,10 @@ class _WLKSession:
         await self._processor.cleanup()
 
     async def updates(self) -> AsyncGenerator[STTUpdate, None]:
-        await self._ensure_started()
-        assert self._results is not None
+        results = await self._ensure_started()
         confirmed = ""
         buffer_tail = ""
-        async for front in self._results:
+        async for front in results:
             if front.status == "error":
                 raise RuntimeError(f"WhisperLiveKit error: {front.error}")
             confirmed = _joined_text(front.lines)
@@ -125,8 +125,8 @@ class WhisperLiveKitBackend:
     """
 
     def __init__(self, model: str = "large-v3-turbo") -> None:
-        assert _WLK_AVAILABLE, "whisperlivekit required"
-        assert _TranscriptionEngine is not None
+        if not _WLK_AVAILABLE or _TranscriptionEngine is None:
+            raise ImportError("whisperlivekit is required but not installed")
         log.info("Loading WhisperLiveKit engine (model=%s) …", model)
         self._engine = _TranscriptionEngine(
             model_size=model,
