@@ -1,148 +1,153 @@
 import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
-import pytest
-from wyoming.asr import Transcript
+from wyoming.asr import Transcript, TranscriptChunk
 from wyoming.audio import AudioChunk, AudioStart, AudioStop
 from wyoming.event import Event
-from wyoming.info import Info
+from wyoming.info import Describe, Info
 
 from wyoming_mlx.backends.fake import FakeSTTBackend
 from wyoming_mlx.wyoming_servers.stt import SttEventHandler
 
 
-def _pcm_chunk(n_samples: int = 1600) -> bytes:
-    """A silent 16 kHz mono 16-bit PCM block."""
-    return b"\x00\x00" * n_samples
-
-
-class _CaptureWriter:
-    """Captures events written by the handler via write_event override."""
-
-    def __init__(self) -> None:
-        self.events: list[Event] = []
-
-    def capture(self, event: Event) -> None:
-        self.events.append(event)
-
-
-@pytest.mark.asyncio
-async def test_stt_handler_emits_transcript_after_audio_stop():
-    backend = FakeSTTBackend(transcript="the quick brown fox")
-    capture = _CaptureWriter()
+def _make_handler(backend: FakeSTTBackend, **kwargs) -> tuple[SttEventHandler, list[Event]]:
     handler = SttEventHandler(
         reader=MagicMock(spec=asyncio.StreamReader),
         writer=MagicMock(spec=asyncio.StreamWriter),
         backend=backend,
         info=Info(),
+        **kwargs,
     )
-    # Override write_event to capture events
-    handler.write_event = AsyncMock(side_effect=lambda e: capture.capture(e))
+    events: list[Event] = []
+    handler.write_event = AsyncMock(side_effect=lambda e: events.append(e))
+    return handler, events
+
+
+def _pcm_chunk(n_samples: int = 1600) -> bytes:
+    return b"\x00\x00" * n_samples
+
+
+async def test_streams_chunks_then_final_transcript():
+    backend = FakeSTTBackend(transcript="hello world", partials=["hello ", "world"])
+    handler, events = _make_handler(backend)
 
     assert await handler.handle_event(AudioStart(rate=16000, width=2, channels=1).event())
     assert await handler.handle_event(
         AudioChunk(rate=16000, width=2, channels=1, audio=_pcm_chunk()).event()
     )
-    assert await handler.handle_event(
-        AudioChunk(rate=16000, width=2, channels=1, audio=_pcm_chunk()).event()
-    )
     assert await handler.handle_event(AudioStop().event())
 
-    transcripts = [Transcript.from_event(e) for e in capture.events if Transcript.is_type(e.type)]
-    assert len(transcripts) == 1
-    assert transcripts[0].text == "the quick brown fox"
+    types = [e.type for e in events]
+    assert types[0] == "transcript-start"
+    chunks = [TranscriptChunk.from_event(e) for e in events if TranscriptChunk.is_type(e.type)]
+    assert [c.text for c in chunks] == ["hello ", "world"]
+    finals = [Transcript.from_event(e) for e in events if Transcript.is_type(e.type)]
+    assert len(finals) == 1
+    assert finals[0].text == "hello world"
+    # final Transcript comes after all chunks, then transcript-stop ends the stream
+    assert types.index("transcript") > types.index("transcript-chunk")
+    assert types[-1] == "transcript-stop"
 
 
-@pytest.mark.asyncio
-async def test_stt_handler_passes_concatenated_audio_to_backend():
+async def test_audio_is_fed_to_session_with_rate():
     backend = FakeSTTBackend(transcript="x")
-    handler = SttEventHandler(
-        reader=MagicMock(spec=asyncio.StreamReader),
-        writer=MagicMock(spec=asyncio.StreamWriter),
-        backend=backend,
-        info=Info(),
-    )
+    handler, _ = _make_handler(backend)
 
-    await handler.handle_event(AudioStart(rate=16000, width=2, channels=1).event())
+    await handler.handle_event(AudioStart(rate=24000, width=2, channels=1).event())
     await handler.handle_event(
-        AudioChunk(rate=16000, width=2, channels=1, audio=b"\x01\x02").event()
+        AudioChunk(rate=24000, width=2, channels=1, audio=b"\x01\x02").event()
     )
     await handler.handle_event(
-        AudioChunk(rate=16000, width=2, channels=1, audio=b"\x03\x04").event()
+        AudioChunk(rate=24000, width=2, channels=1, audio=b"\x03\x04").event()
     )
     await handler.handle_event(AudioStop().event())
 
-    assert len(backend.calls) == 1
-    audio, rate = backend.calls[0]
-    assert audio == b"\x01\x02\x03\x04"
-    assert rate == 16000
+    assert len(backend.sessions) == 1
+    assert backend.sessions[0].fed == [(b"\x01\x02", 24000), (b"\x03\x04", 24000)]
 
 
-@pytest.mark.asyncio
-async def test_stt_handler_responds_to_describe():
-    from wyoming.info import Describe
+async def test_chunk_without_audio_start_starts_session():
+    backend = FakeSTTBackend(transcript="x")
+    handler, events = _make_handler(backend)
 
-    backend = FakeSTTBackend(transcript="hello")
-    capture = _CaptureWriter()
-    handler = SttEventHandler(
-        reader=MagicMock(spec=asyncio.StreamReader),
-        writer=MagicMock(spec=asyncio.StreamWriter),
-        backend=backend,
-        info=Info(),
+    await handler.handle_event(
+        AudioChunk(rate=16000, width=2, channels=1, audio=b"\x01\x02").event()
     )
-    handler.write_event = AsyncMock(side_effect=lambda e: capture.capture(e))
+    await handler.handle_event(AudioStop().event())
+
+    assert len(backend.sessions) == 1
+    assert backend.sessions[0].fed == [(b"\x01\x02", 16000)]
+    assert any(Transcript.is_type(e.type) for e in events)
+
+
+async def test_audio_stop_without_start_is_ignored():
+    backend = FakeSTTBackend(transcript="x")
+    handler, events = _make_handler(backend)
+
+    assert await handler.handle_event(AudioStop().event())
+
+    assert backend.sessions == []
+    assert events == []
+
+
+async def test_responds_to_describe():
+    backend = FakeSTTBackend(transcript="hello")
+    handler, events = _make_handler(backend)
 
     assert await handler.handle_event(Describe().event())
 
-    info_events = [e for e in capture.events if Info.is_type(e.type)]
+    info_events = [e for e in events if Info.is_type(e.type)]
     assert len(info_events) == 1
-    result_info = Info.from_event(info_events[0])
-    assert isinstance(result_info, Info)
 
 
-@pytest.mark.asyncio
-async def test_stt_handler_rejects_overflowing_audio():
+async def test_rejects_overflowing_audio():
     backend = FakeSTTBackend(transcript="x")
-    handler = SttEventHandler(
-        reader=MagicMock(spec=asyncio.StreamReader),
-        writer=MagicMock(spec=asyncio.StreamWriter),
-        backend=backend,
-        info=Info(),
-        max_audio_bytes=10,
-    )
+    handler, events = _make_handler(backend, max_audio_bytes=10)
 
     await handler.handle_event(AudioStart(rate=16000, width=2, channels=1).event())
-    result = await handler.handle_event(
+    assert await handler.handle_event(
         AudioChunk(rate=16000, width=2, channels=1, audio=b"\x01\x02").event()
     )
-    assert result is True
     result = await handler.handle_event(
         AudioChunk(rate=16000, width=2, channels=1, audio=b"\x03" * 10).event()
     )
+
     assert result is False
-    assert backend.calls == []
+    assert backend.sessions[0].closed
+    assert not any(Transcript.is_type(e.type) for e in events)
 
 
-@pytest.mark.asyncio
-async def test_stt_handler_recovers_after_backend_exception():
-    from unittest.mock import AsyncMock as _AsyncMock
-
+async def test_recovers_after_session_exception():
     backend = FakeSTTBackend(transcript="x")
-    backend.transcribe = _AsyncMock(side_effect=RuntimeError("GPU exploded"))
-    capture = _CaptureWriter()
-    handler = SttEventHandler(
-        reader=MagicMock(spec=asyncio.StreamReader),
-        writer=MagicMock(spec=asyncio.StreamWriter),
-        backend=backend,
-        info=Info(),
-    )
-    handler.write_event = AsyncMock(side_effect=lambda e: capture.capture(e))
+    handler, events = _make_handler(backend)
 
     await handler.handle_event(AudioStart(rate=16000, width=2, channels=1).event())
+    session = backend.sessions[0]
+    session.finish = AsyncMock(side_effect=RuntimeError("GPU exploded"))
+
     await handler.handle_event(
         AudioChunk(rate=16000, width=2, channels=1, audio=b"\x01\x02").event()
     )
     result = await handler.handle_event(AudioStop().event())
 
     assert result is True
-    assert capture.events == []
+    assert not any(Transcript.is_type(e.type) for e in events)
+
+    # handler is reusable after the failure
+    await handler.handle_event(AudioStart(rate=16000, width=2, channels=1).event())
+    await handler.handle_event(
+        AudioChunk(rate=16000, width=2, channels=1, audio=b"\x05\x06").event()
+    )
+    assert await handler.handle_event(AudioStop().event())
+    finals = [Transcript.from_event(e) for e in events if Transcript.is_type(e.type)]
+    assert [f.text for f in finals] == ["x"]
+
+
+async def test_disconnect_aborts_open_session():
+    backend = FakeSTTBackend(transcript="x")
+    handler, _ = _make_handler(backend)
+
+    await handler.handle_event(AudioStart(rate=16000, width=2, channels=1).event())
+    await handler.disconnect()
+
+    assert backend.sessions[0].closed
