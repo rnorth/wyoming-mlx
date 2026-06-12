@@ -29,7 +29,7 @@ def _env_overrides(prefix: str, delimiter: str = "__") -> dict:
 
 
 class ModelsConfig(BaseModel):
-    whisper: str = "mlx-community/distil-whisper-large-v3"
+    whisper: str = "large-v3-turbo"
     kokoro: str = "hexgrad/Kokoro-82M"
     kokoro_default_voice: str = "af_heart"
 

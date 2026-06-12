@@ -33,22 +33,25 @@ from wyoming_mlx.wyoming_servers.tts import TtsEventHandler
 log = logging.getLogger(__name__)
 
 
-def _ensure_models_cached(kokoro_model_id: str, whisper_model_id: str) -> None:
-    """One-time lazy download of MLX models at startup.
+def _ensure_models_cached(kokoro_model_id: str) -> None:
+    """One-time lazy download of the Kokoro TTS model at startup.
 
     huggingface_hub contacts the HF API to resolve revision tags on every
     call, but once files are in the local cache subsequent loads are
     completely offline.  This function ensures the cache is populated at
-    startup so the first TTS/STT request doesn't block.
+    startup so the first TTS request doesn't block.
 
-    If the models are already cached (we check via a marker file), this is
+    WhisperLiveKit downloads its model during eager backend initialisation,
+    so no pre-caching is needed for STT.
+
+    If the model is already cached (we check via a marker file), this is
     a no-op.
     """
     from pathlib import Path
 
     hf_home = Path(os.environ.get("HF_HOME", Path.home() / ".cache" / "huggingface"))
     marker = hf_home / ".wyoming-mlx-cached"
-    cache_key = f"{kokoro_model_id}:{whisper_model_id}"
+    cache_key = kokoro_model_id
 
     # Quick check without importing heavy modules.
     if marker.exists():
@@ -86,22 +89,6 @@ def _ensure_models_cached(kokoro_model_id: str, whisper_model_id: str) -> None:
         except Exception:
             log.warning("Failed to cache Kokoro model (will download on first use).")
 
-        # Whisper model — mlx-whisper uses huggingface_hub under the hood.
-        try:
-            # mlx-whisper resolves the model path via huggingface_hub.
-            # We can't call hf_hub_download directly for mlx-whisper models,
-            # so we do a quick probe import to trigger the download.
-            import mlx_whisper  # noqa: F401  # pyright: ignore[reportMissingImports]
-
-            # Trigger a dummy transcribe to populate the cache.
-            # Actually, we can't do that without audio. Just note it.
-            log.info(
-                "Whisper model will download lazily on first STT request "
-                "(path_or_hf_repo resolves via huggingface_hub)."
-            )
-        except Exception:
-            log.warning("Failed to cache Whisper model (will download on first use).")
-
     try:
         _download()
         marker.write_text(cache_key)
@@ -119,8 +106,9 @@ def _build_stt_info(model_id: str) -> Info:
                 name="wyoming-mlx",
                 attribution=Attribution(name="wyoming-mlx", url=_PROJECT_URL),
                 installed=True,
-                description="MLX whisper STT",
+                description="WhisperLiveKit streaming STT (MLX)",
                 version="0.1.0",
+                supports_transcript_streaming=True,
                 models=[
                     AsrModel(
                         name=model_id,
@@ -289,19 +277,19 @@ def main(argv: list[str] | None = None) -> None:
 
     # Lazy import real backends only at runtime
     try:
-        from wyoming_mlx.backends.mlx_stt import MLXWhisperBackend
         from wyoming_mlx.backends.mlx_tts import KokoroBackend
+        from wyoming_mlx.backends.wlk_stt import WhisperLiveKitBackend
     except ImportError:
         log.error(
-            "MLX backends not available (mlx, mlx-whisper, kokoro packages missing). "
+            "MLX backends not available (mlx, whisperlivekit, kokoro packages missing). "
             "Install the MLX dependencies to enable real models."
         )
         sys.exit(1)
 
     # Ensure model weights are cached locally before backends initialize.
-    _ensure_models_cached(cfg.models.kokoro, cfg.models.whisper)
+    _ensure_models_cached(cfg.models.kokoro)
 
-    stt_backend = MLXWhisperBackend(model_id=cfg.models.whisper)
+    stt_backend = WhisperLiveKitBackend(model=cfg.models.whisper)
     tts_backend = KokoroBackend(model_id=cfg.models.kokoro, voice=cfg.models.kokoro_default_voice)
 
     # Suppress misaki's leaked semaphore warning at shutdown (multiprocessing

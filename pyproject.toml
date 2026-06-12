@@ -25,7 +25,7 @@ dependencies = [
     "soundfile",
     "python-multipart>=0.0.29",
     "mlx>=0.31.2; sys_platform == 'darwin'",
-    "mlx-whisper>=0.4.3; sys_platform == 'darwin'",
+    "whisperlivekit[mlx-whisper]==0.2.22; sys_platform == 'darwin'",
     "kokoro>=0.9.4",
     "torch",
 ]

@@ -2,19 +2,20 @@
 
 import pytest
 
-from wyoming_mlx.backends.mlx_stt import MLXWhisperBackend
+from wyoming_mlx.backends.base import collect_transcript
 from wyoming_mlx.backends.mlx_tts import KokoroBackend
+from wyoming_mlx.backends.wlk_stt import WhisperLiveKitBackend
 
 
 @pytest.mark.integration
 async def test_tts_stt_roundtrip():
-    """Kokoro synthesises → Whisper transcribes → transcript shares words with input."""
+    """Kokoro synthesises → WhisperLiveKit transcribes → transcript shares words with input."""
     # Skip unless --integration flag is passed
-    pytest.importorskip("mlx_whisper")
+    pytest.importorskip("whisperlivekit")
     pytest.importorskip("kokoro")
 
     tts = KokoroBackend(model_id="hexgrad/Kokoro-82M", voice="af_heart")
-    stt = MLXWhisperBackend()
+    stt = WhisperLiveKitBackend()
 
     text = "The quick brown fox jumps over the lazy dog"
 
@@ -26,7 +27,7 @@ async def test_tts_stt_roundtrip():
     assert len(audio) > 0, "TTS produced no audio output"
 
     # Transcribe
-    transcript = await stt.transcribe(audio, tts.sample_rate)
+    transcript = await collect_transcript(stt, audio, tts.sample_rate)
     assert transcript, "STT produced empty transcript"
 
     # Check word overlap (at least 50%)
