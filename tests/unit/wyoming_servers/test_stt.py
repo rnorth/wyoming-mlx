@@ -1,4 +1,5 @@
 import asyncio
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 from wyoming.asr import Transcript, TranscriptChunk
@@ -10,7 +11,7 @@ from wyoming_mlx.backends.fake import FakeSTTBackend
 from wyoming_mlx.wyoming_servers.stt import SttEventHandler
 
 
-def _make_handler(backend: FakeSTTBackend, **kwargs) -> tuple[SttEventHandler, list[Event]]:
+def _make_handler(backend: FakeSTTBackend, **kwargs: Any) -> tuple[SttEventHandler, list[Event]]:
     handler = SttEventHandler(
         reader=MagicMock(spec=asyncio.StreamReader),
         writer=MagicMock(spec=asyncio.StreamWriter),
@@ -44,8 +45,10 @@ async def test_streams_chunks_then_final_transcript():
     finals = [Transcript.from_event(e) for e in events if Transcript.is_type(e.type)]
     assert len(finals) == 1
     assert finals[0].text == "hello world"
-    # final Transcript comes after all chunks, then transcript-stop ends the stream
-    assert types.index("transcript") > types.index("transcript-chunk")
+    # transcript-start first, ALL chunks before the final Transcript, stop last
+    chunk_indices = [i for i, t in enumerate(types) if t == "transcript-chunk"]
+    transcript_idx = types.index("transcript")
+    assert all(i < transcript_idx for i in chunk_indices)
     assert types[-1] == "transcript-stop"
 
 

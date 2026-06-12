@@ -83,6 +83,8 @@ class SttEventHandler(AsyncEventHandler):
                 log.exception("transcription failed")
                 if pump_task is not None:
                     pump_task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError, Exception):
+                        await pump_task
                 await self._close_quietly(session)
                 return True
             await self.write_event(Transcript(text=final).event())

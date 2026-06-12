@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator, AsyncIterator
 
 from wyoming_mlx.backends.base import STTUpdate
 
@@ -26,7 +26,7 @@ class FakeSTTSession:
         self.closed = True
         self._finished.set()
 
-    async def updates(self) -> AsyncIterator[STTUpdate]:
+    async def updates(self) -> AsyncGenerator[STTUpdate, None]:
         for partial in self._partials:
             yield STTUpdate(text=partial)
         await self._finished.wait()
