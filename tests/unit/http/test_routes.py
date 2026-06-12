@@ -44,7 +44,7 @@ def app() -> FastAPI:
         stt=stt,
         tts=tts,
         api_keys={"sekret"},
-        models=ModelsConfig(whisper="mlx-community/distil-whisper-large-v3"),
+        models=ModelsConfig(whisper="large-v3-turbo"),
     )
 
 
@@ -61,7 +61,7 @@ async def test_models_route_is_public(client: AsyncClient):
     assert r.status_code == 200
     body = r.json()
     assert any(m["id"] == "alice" for m in body["data"])
-    assert any(m["id"] == "mlx-community/distil-whisper-large-v3" for m in body["data"])
+    assert any(m["id"] == "large-v3-turbo" for m in body["data"])
 
 
 @pytest.mark.asyncio

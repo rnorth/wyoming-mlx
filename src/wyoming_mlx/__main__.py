@@ -47,8 +47,6 @@ def _ensure_models_cached(kokoro_model_id: str) -> None:
     If the model is already cached (we check via a marker file), this is
     a no-op.
     """
-    from pathlib import Path
-
     hf_home = Path(os.environ.get("HF_HOME", Path.home() / ".cache" / "huggingface"))
     marker = hf_home / ".wyoming-mlx-cached"
     cache_key = kokoro_model_id

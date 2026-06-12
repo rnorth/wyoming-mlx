@@ -133,7 +133,6 @@ class WhisperLiveKitBackend:
             backend="mlx-whisper",
             backend_policy="simulstreaming",
             pcm_input=True,
-            log_level="WARNING",
         )
         log.info("[STT] WhisperLiveKit engine ready")
 
