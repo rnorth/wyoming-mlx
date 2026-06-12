@@ -35,8 +35,6 @@ class STTBackend(Protocol):
     implementation may serialise GPU work internally.
     """
 
-    async def transcribe(self, audio: bytes, sample_rate: int) -> str: ...
-
     def start_session(self) -> STTSession: ...
 
 

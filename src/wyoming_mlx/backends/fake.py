@@ -43,11 +43,6 @@ class FakeSTTBackend:
         self.transcript = transcript
         self.partials = partials or []
         self.sessions: list[FakeSTTSession] = []
-        self.calls: list[tuple[bytes, int]] = []
-
-    async def transcribe(self, audio: bytes, sample_rate: int) -> str:
-        self.calls.append((audio, sample_rate))
-        return self.transcript
 
     def start_session(self) -> FakeSTTSession:
         session = FakeSTTSession(list(self.partials), self.transcript)

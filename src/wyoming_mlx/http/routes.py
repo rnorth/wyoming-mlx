@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Uplo
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from wyoming_mlx.backends.base import STTBackend, TTSBackend
+from wyoming_mlx.backends.base import STTBackend, TTSBackend, collect_transcript
 from wyoming_mlx.config import ModelsConfig
 
 
@@ -126,7 +126,7 @@ def build_router(
         if file.size is None and len(raw) > 100_000_000:
             raise HTTPException(status_code=413, detail="audio file exceeds 100MB limit")
         pcm, rate = _decode_audio_to_pcm16_mono(raw)
-        text = await stt.transcribe(pcm, rate)
+        text = await collect_transcript(stt, pcm, rate)
         return {"text": text}
 
     @router.post("/v1/audio/speech", dependencies=[auth])
