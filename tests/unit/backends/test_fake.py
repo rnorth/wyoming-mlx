@@ -1,3 +1,5 @@
+import asyncio
+
 import pytest
 
 from wyoming_mlx.backends.base import STTBackend, STTUpdate, TTSBackend, collect_transcript
@@ -55,10 +57,8 @@ async def test_fake_stt_session_final_waits_for_finish():
     session = backend.start_session()
 
     agen = session.updates()
-    import asyncio
-
-    pump = asyncio.ensure_future(anext(agen))
-    await asyncio.sleep(0.01)
+    pump = asyncio.create_task(anext(agen))
+    await asyncio.sleep(0)
     assert not pump.done()  # blocked: finish() not called yet
 
     await session.finish()
