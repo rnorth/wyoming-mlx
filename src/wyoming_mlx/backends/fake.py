@@ -1,21 +1,58 @@
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
+
+from wyoming_mlx.backends.base import STTUpdate
+
+
+class FakeSTTSession:
+    """Scripted session: yields canned partials, then the final after finish()."""
+
+    def __init__(self, partials: list[str], final: str) -> None:
+        self._partials = partials
+        self._final = final
+        self.fed: list[tuple[bytes, int]] = []
+        self.closed = False
+        self._finished = asyncio.Event()
+
+    async def feed(self, audio: bytes, sample_rate: int) -> None:
+        self.fed.append((audio, sample_rate))
+
+    async def finish(self) -> None:
+        self._finished.set()
+
+    async def close(self) -> None:
+        self.closed = True
+        self._finished.set()
+
+    async def updates(self) -> AsyncIterator[STTUpdate]:
+        for partial in self._partials:
+            yield STTUpdate(text=partial)
+        await self._finished.wait()
+        yield STTUpdate(final=self._final)
 
 
 class FakeSTTBackend:
     """In-memory STT backend for unit tests.
 
-    Returns a canned transcript and records every call it receives.
+    Streams canned partials and a canned final transcript; records sessions.
     """
 
-    def __init__(self, transcript: str = "") -> None:
+    def __init__(self, transcript: str = "", partials: list[str] | None = None) -> None:
         self.transcript = transcript
+        self.partials = partials or []
+        self.sessions: list[FakeSTTSession] = []
         self.calls: list[tuple[bytes, int]] = []
 
     async def transcribe(self, audio: bytes, sample_rate: int) -> str:
         self.calls.append((audio, sample_rate))
         return self.transcript
+
+    def start_session(self) -> FakeSTTSession:
+        session = FakeSTTSession(list(self.partials), self.transcript)
+        self.sessions.append(session)
+        return session
 
 
 class FakeTTSBackend:

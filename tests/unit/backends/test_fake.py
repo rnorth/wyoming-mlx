@@ -1,6 +1,6 @@
 import pytest
 
-from wyoming_mlx.backends.base import STTBackend, TTSBackend
+from wyoming_mlx.backends.base import STTBackend, STTUpdate, TTSBackend, collect_transcript
 from wyoming_mlx.backends.fake import FakeSTTBackend, FakeTTSBackend
 
 
@@ -35,3 +35,40 @@ async def test_fake_tts_yields_canned_chunks():
 async def test_fake_tts_voices_attribute():
     backend = FakeTTSBackend(chunks=[b""], voices=["alice", "bob"])
     assert backend.voices == ["alice", "bob"]
+
+
+async def test_fake_stt_session_yields_partials_then_final():
+    backend = FakeSTTBackend(transcript="hello world", partials=["hello ", "world"])
+    session = backend.start_session()
+    await session.feed(b"\x01\x02", 16000)
+    await session.finish()
+
+    updates = [u async for u in session.updates()]
+
+    assert [u.text for u in updates[:-1]] == ["hello ", "world"]
+    assert updates[-1] == STTUpdate(final="hello world")
+    assert session.fed == [(b"\x01\x02", 16000)]
+
+
+async def test_fake_stt_session_final_waits_for_finish():
+    backend = FakeSTTBackend(transcript="done")
+    session = backend.start_session()
+
+    agen = session.updates()
+    import asyncio
+
+    pump = asyncio.ensure_future(anext(agen))
+    await asyncio.sleep(0.01)
+    assert not pump.done()  # blocked: finish() not called yet
+
+    await session.finish()
+    update = await pump
+    assert update.final == "done"
+    await agen.aclose()
+
+
+async def test_collect_transcript_returns_final_text():
+    backend = FakeSTTBackend(transcript="the answer", partials=["the "])
+    text = await collect_transcript(backend, b"\x00\x00", 16000)
+    assert text == "the answer"
+    assert backend.sessions[0].fed == [(b"\x00\x00", 16000)]
