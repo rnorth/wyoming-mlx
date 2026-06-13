@@ -1,7 +1,7 @@
 [project]
 name = "wyoming-mlx"
 version = "0.1.0"
-description = "Apple-Silicon-native TTS and STT for Home Assistant and OpenAI-compatible clients"
+description = "Apple-Silicon-native TTS and streaming STT for Home Assistant and OpenAI-compatible clients"
 readme = "README.md"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
