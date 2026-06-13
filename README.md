@@ -45,6 +45,22 @@ brew services start wyoming-mlx
 
 Logs go to `$(brew --prefix)/var/log/wyoming-mlx.log`. Apple Silicon only.
 
+> [!WARNING]
+> **Upgraders:** the `models.whisper` config value (TOML `[models] whisper =
+> ...`, CLI `--whisper-model`, env `WYOMING_MLX_MODELS__WHISPER`) changed
+> meaning in this release. It used to be a Hugging Face repo ID (e.g.
+> `mlx-community/distil-whisper-large-v3`); it is now a WhisperLiveKit
+> model-size name: `tiny`, `base`, `small`, `medium`, `large-v3`, or
+> `large-v3-turbo` (default `large-v3-turbo`). An old repo-ID value (anything
+> containing `/`) is rejected at startup with a clear error. Update your
+> config, for example:
+>
+> ```toml
+> [models]
+> # before:  whisper = "mlx-community/distil-whisper-large-v3"
+> whisper = "large-v3-turbo"
+> ```
+
 ## Quick start (dev)
 
 ```bash
@@ -76,7 +92,9 @@ By default it loads:
 - Kokoro-82M (MLX) on Wyoming port 10200 / HTTP `/v1/audio/speech`
 - HTTP on port 10400 with API-key auth
 
-Models download on first use to the Hugging Face cache.
+Models are stored in the Hugging Face cache. The STT model is loaded at
+startup (so a bad model name or download failure surfaces immediately); the
+Kokoro TTS model downloads on first synthesis.
 
 ### API keys
 
@@ -138,21 +156,6 @@ Pass `--config /path/to/config.toml` or set env vars with the
 `WYOMING_MLX_` prefix and `__` for nesting (e.g.
 `WYOMING_MLX_HTTP__PORT=10401`). See `src/wyoming_mlx/config.py` for the
 full schema.
-
-> **Breaking change (upgraders):** The `models.whisper` config value
-> (TOML `[models] whisper = ...`, CLI `--whisper-model`, env
-> `WYOMING_MLX_MODELS__WHISPER`) changed meaning in this release.
-> It was a Hugging Face repo ID (e.g. `mlx-community/distil-whisper-large-v3`);
-> it is now a WhisperLiveKit model-size name: `tiny`, `base`, `small`,
-> `medium`, `large-v3`, or `large-v3-turbo` (default `large-v3-turbo`).
-> Old repo-ID values will fail at startup with an unhelpful upstream error
-> ("no compatible weights found"). Update your config, for example:
->
-> ```toml
-> [models]
-> # before:  whisper = "mlx-community/distil-whisper-large-v3"
-> whisper = "large-v3-turbo"
-> ```
 
 ## License
 
