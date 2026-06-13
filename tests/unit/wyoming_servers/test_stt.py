@@ -117,7 +117,10 @@ async def test_rejects_overflowing_audio():
 
     assert result is False
     assert backend.sessions[0].closed
-    assert not any(Transcript.is_type(e.type) for e in events)
+    # overflow still terminates the stream cleanly before disconnecting
+    finals = [Transcript.from_event(e) for e in events if Transcript.is_type(e.type)]
+    assert [f.text for f in finals] == [""]
+    assert events[-1].type == "transcript-stop"
 
 
 async def test_recovers_after_session_exception():
@@ -172,6 +175,29 @@ async def test_pump_failure_still_terminates_stream():
     finals = [Transcript.from_event(e) for e in events if Transcript.is_type(e.type)]
     assert [f.text for f in finals] == [""]
     assert events[-1].type == "transcript-stop"
+
+
+async def test_feed_failure_terminates_stream():
+    backend = FakeSTTBackend(transcript="x")
+    handler, events = _make_handler(backend)
+
+    await handler.handle_event(AudioStart(rate=16000, width=2, channels=1).event())
+    session = backend.sessions[0]
+    session.feed = AsyncMock(side_effect=RuntimeError("device gone"))
+
+    # feed failure aborts the session but keeps the connection open …
+    assert await handler.handle_event(
+        AudioChunk(rate=16000, width=2, channels=1, audio=b"\x01\x02").event()
+    )
+    # … and still terminates the stream so the client isn't left waiting
+    finals = [Transcript.from_event(e) for e in events if Transcript.is_type(e.type)]
+    assert [f.text for f in finals] == [""]
+    assert events[-1].type == "transcript-stop"
+
+    # a subsequent audio-stop is a no-op (session already gone)
+    assert await handler.handle_event(AudioStop().event())
+    finals = [Transcript.from_event(e) for e in events if Transcript.is_type(e.type)]
+    assert [f.text for f in finals] == [""]
 
 
 async def test_two_successful_utterances_back_to_back():

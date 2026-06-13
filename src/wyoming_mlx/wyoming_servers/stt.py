@@ -59,12 +59,14 @@ class SttEventHandler(AsyncEventHandler):
             if self._bytes_fed > self._max_audio_bytes:
                 log.warning("STT audio exceeded limit of %d bytes", self._max_audio_bytes)
                 await self._abort_session()
+                await self._terminate_stream()
                 return False
             try:
                 await self._session.feed(chunk.audio, chunk.rate)
             except Exception:
                 log.exception("feeding audio to STT session failed")
                 await self._abort_session()
+                await self._terminate_stream()
             return True
 
         if AudioStop.is_type(event.type):
@@ -86,9 +88,7 @@ class SttEventHandler(AsyncEventHandler):
                     with contextlib.suppress(asyncio.CancelledError, Exception):
                         await pump_task
                 await self._close_quietly(session)
-                # Always terminate the stream so the client isn't left waiting.
-                await self.write_event(Transcript(text="").event())
-                await self.write_event(TranscriptStop().event())
+                await self._terminate_stream()
                 return True
             await self.write_event(Transcript(text=final).event())
             await self.write_event(TranscriptStop().event())
@@ -115,6 +115,12 @@ class SttEventHandler(AsyncEventHandler):
             if update.final is not None:
                 final = update.final
         return final
+
+    async def _terminate_stream(self) -> None:
+        """Emit an empty final transcript + stop so a client that already saw
+        transcript-start isn't left waiting after an aborted utterance."""
+        await self.write_event(Transcript(text="").event())
+        await self.write_event(TranscriptStop().event())
 
     async def _abort_session(self) -> None:
         if self._pump_task is not None:
