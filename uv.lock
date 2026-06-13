@@ -2922,7 +2922,6 @@ source = { editable = "." }
 dependencies = [
     { name = "fastapi" },
     { name = "kokoro" },
-    { name = "mlx", marker = "sys_platform == 'darwin'" },
     { name = "numpy" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
@@ -2950,7 +2949,6 @@ dev = [
 requires-dist = [
     { name = "fastapi" },
     { name = "kokoro", specifier = ">=0.9.4" },
-    { name = "mlx", marker = "sys_platform == 'darwin'", specifier = ">=0.31.2" },
     { name = "numpy" },
     { name = "pydantic" },
     { name = "pydantic-settings" },

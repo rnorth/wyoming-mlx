@@ -24,7 +24,7 @@ dependencies = [
     "scipy",
     "soundfile",
     "python-multipart>=0.0.29",
-    "mlx>=0.31.2; sys_platform == 'darwin'",
+    # mlx comes in transitively via whisperlivekit[mlx-whisper] → mlx-whisper.
     "whisperlivekit[mlx-whisper]==0.2.22; sys_platform == 'darwin'",
     "kokoro>=0.9.4",
     "torch",
