@@ -126,7 +126,10 @@ def build_router(
         if file.size is None and len(raw) > 100_000_000:
             raise HTTPException(status_code=413, detail="audio file exceeds 100MB limit")
         pcm, rate = _decode_audio_to_pcm16_mono(raw)
-        text = await collect_transcript(stt, pcm, rate)
+        try:
+            text = await collect_transcript(stt, pcm, rate)
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail="transcription failed") from exc
         return {"text": text}
 
     @router.post("/v1/audio/speech", dependencies=[auth])

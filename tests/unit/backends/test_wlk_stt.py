@@ -9,12 +9,19 @@ import pytest
 
 from wyoming_mlx.backends.wlk_stt import (
     WHISPER_SAMPLE_RATE,
+    WhisperLiveKitBackend,
     _delta,
     _joined_text,
     _resample_to_16k,
     _WLKSession,
     resample_pcm16,
 )
+
+
+def test_backend_rejects_hf_repo_id():
+    """A Hugging Face repo id is rejected up front, before any model load."""
+    with pytest.raises(ValueError, match="repo id"):
+        WhisperLiveKitBackend(model="mlx-community/distil-whisper-large-v3")
 
 
 def test_resample_passthrough_at_16k():

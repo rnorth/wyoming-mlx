@@ -86,6 +86,9 @@ class SttEventHandler(AsyncEventHandler):
                     with contextlib.suppress(asyncio.CancelledError, Exception):
                         await pump_task
                 await self._close_quietly(session)
+                # Always terminate the stream so the client isn't left waiting.
+                await self.write_event(Transcript(text="").event())
+                await self.write_event(TranscriptStop().event())
                 return True
             await self.write_event(Transcript(text=final).event())
             await self.write_event(TranscriptStop().event())

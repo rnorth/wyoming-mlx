@@ -67,7 +67,7 @@ def _delta(emitted: str, confirmed: str) -> str:
     (which is authoritative) carry the correction.
     """
     if confirmed.startswith(emitted):
-        return confirmed[len(emitted):]
+        return confirmed[len(emitted) :]
     return ""
 
 
@@ -125,6 +125,11 @@ class WhisperLiveKitBackend:
     """
 
     def __init__(self, model: str = "large-v3-turbo") -> None:
+        if "/" in model:
+            raise ValueError(
+                f"model must be a WhisperLiveKit size name (e.g. 'large-v3-turbo'), "
+                f"not a Hugging Face repo id: {model!r}"
+            )
         if not _WLK_AVAILABLE or _TranscriptionEngine is None:
             raise ImportError("whisperlivekit is required but not installed")
         log.info("Loading WhisperLiveKit engine (model=%s) …", model)

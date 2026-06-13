@@ -2,7 +2,7 @@ import asyncio
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
-from wyoming.asr import Transcript, TranscriptChunk
+from wyoming.asr import Transcript, TranscriptChunk, TranscriptStop
 from wyoming.audio import AudioChunk, AudioStart, AudioStop
 from wyoming.event import Event
 from wyoming.info import Describe, Info
@@ -134,7 +134,11 @@ async def test_recovers_after_session_exception():
     result = await handler.handle_event(AudioStop().event())
 
     assert result is True
-    assert not any(Transcript.is_type(e.type) for e in events)
+    # a failure still terminates the stream: empty final transcript + stop
+    finals = [Transcript.from_event(e) for e in events if Transcript.is_type(e.type)]
+    assert [f.text for f in finals] == [""]
+    assert any(TranscriptStop.is_type(e.type) for e in events)
+    assert events[-1].type == "transcript-stop"
 
     # handler is reusable after the failure
     await handler.handle_event(AudioStart(rate=16000, width=2, channels=1).event())
@@ -143,7 +147,62 @@ async def test_recovers_after_session_exception():
     )
     assert await handler.handle_event(AudioStop().event())
     finals = [Transcript.from_event(e) for e in events if Transcript.is_type(e.type)]
-    assert [f.text for f in finals] == ["x"]
+    assert [f.text for f in finals] == ["", "x"]
+
+
+async def test_pump_failure_still_terminates_stream():
+    backend = FakeSTTBackend(transcript="x")
+    handler, events = _make_handler(backend)
+
+    await handler.handle_event(AudioStart(rate=16000, width=2, channels=1).event())
+    session = backend.sessions[0]
+
+    async def boom():
+        raise RuntimeError("decoder died")
+        yield  # pragma: no cover - makes this an async generator
+
+    session.updates = boom
+
+    await handler.handle_event(
+        AudioChunk(rate=16000, width=2, channels=1, audio=b"\x01\x02").event()
+    )
+    result = await handler.handle_event(AudioStop().event())
+
+    assert result is True
+    finals = [Transcript.from_event(e) for e in events if Transcript.is_type(e.type)]
+    assert [f.text for f in finals] == [""]
+    assert events[-1].type == "transcript-stop"
+
+
+async def test_two_successful_utterances_back_to_back():
+    backend = FakeSTTBackend(transcript="hello", partials=["hel", "lo"])
+    handler, events = _make_handler(backend)
+
+    for _ in range(2):
+        await handler.handle_event(AudioStart(rate=16000, width=2, channels=1).event())
+        await handler.handle_event(
+            AudioChunk(rate=16000, width=2, channels=1, audio=_pcm_chunk()).event()
+        )
+        await handler.handle_event(AudioStop().event())
+
+    assert len(backend.sessions) == 2
+    finals = [Transcript.from_event(e) for e in events if Transcript.is_type(e.type)]
+    assert [f.text for f in finals] == ["hello", "hello"]
+    assert [e.type for e in events].count("transcript-start") == 2
+    assert [e.type for e in events].count("transcript-stop") == 2
+
+
+async def test_empty_utterance_start_then_stop():
+    backend = FakeSTTBackend(transcript="")
+    handler, events = _make_handler(backend)
+
+    await handler.handle_event(AudioStart(rate=16000, width=2, channels=1).event())
+    assert await handler.handle_event(AudioStop().event())
+
+    assert len(backend.sessions) == 1
+    finals = [Transcript.from_event(e) for e in events if Transcript.is_type(e.type)]
+    assert [f.text for f in finals] == [""]
+    assert events[-1].type == "transcript-stop"
 
 
 async def test_disconnect_aborts_open_session():
